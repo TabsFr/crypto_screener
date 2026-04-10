@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import streamlit as st
 
@@ -28,7 +29,13 @@ def main():
 
     st.write("This app shows which coins are outperforming BTC based on the existing screener logic.")
 
-    results_df = build_results()
+    # Try to load from CSV first, fallback to building results
+    csv_file = os.path.join(os.path.dirname(__file__), "crypto_relative_strength.csv")
+    
+    if os.path.exists(csv_file):
+        results_df = pd.read_csv(csv_file)
+    else:
+        results_df = build_results()
 
     if results_df.empty:
         st.error("No valid results were generated.")
@@ -48,7 +55,7 @@ def main():
     st.subheader("Top 5 Coins")
     st.dataframe(
         filtered_df.head(5).style.map(color_value),
-        use_container_width=True,
+        width='stretch',
     )
 
     st.subheader("Score Chart")
@@ -58,7 +65,7 @@ def main():
     st.subheader("Full Results")
     st.dataframe(
         filtered_df.style.map(color_value),
-        use_container_width=True,
+        width='stretch',
     )
 
     st.write(f"Total coins shown: {len(filtered_df)}")
