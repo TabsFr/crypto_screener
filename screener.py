@@ -12,7 +12,6 @@ OUTPUT_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "crypto_relative_strength.csv",
 )
-BINANCE_URL = "https://api.binance.com/api/v3/klines"
 COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/markets"
 REQUEST_HEADERS = {
     "User-Agent": "crypto-relative-strength-screener/1.0",
@@ -37,21 +36,25 @@ STABLECOINS = {
     "BUSD",
 }
 
-def get_top_market_cap_symbols():
+
+def get_market_data():
     """
-    Fetch the top coins by market cap from CoinGecko.
+    Fetch the top market cap coins from CoinGecko in one request.
 
-    We convert each coin symbol into the Binance spot symbol format:
-    BTC -> BTCUSDT, ETH -> ETHUSDT, etc.
+    We ask for:
+    - top coins by market cap
+    - 7d sparkline data
+    - 7d and 30d percentage change
 
-    If CoinGecko fails, return an empty list.
+    This keeps the app lightweight and avoids making one request per coin.
     """
     params = {
         "vs_currency": "usd",
         "order": "market_cap_desc",
         "per_page": TOP_N,
         "page": 1,
-        "sparkline": "false",
+        "sparkline": "true",
+        "price_change_percentage": "7d,30d",
     }
 
     try:
@@ -64,95 +67,69 @@ def get_top_market_cap_symbols():
         response.raise_for_status()
         data = response.json()
     except Exception as error:
-        print(f"Could not fetch top market cap coins: {error}")
+        print(f"Could not fetch market data from CoinGecko: {error}")
         return []
 
     if not isinstance(data, list) or not data:
-        print("CoinGecko returned no market cap data.")
+        print("CoinGecko returned no market data.")
         return []
 
-    symbols = []
-    seen = set()
-
-    for coin in data:
-        base_symbol = str(coin.get("symbol", "")).upper().strip()
-        if not base_symbol:
-            continue
-
-        if base_symbol in STABLECOINS:
-            continue
-
-        binance_symbol = f"{base_symbol}USDT"
-
-        if binance_symbol not in seen:
-            seen.add(binance_symbol)
-            symbols.append(binance_symbol)
-
-    return symbols
+    return data
 
 
 def get_price_data(symbol):
     """
-    Fetch daily close prices from Binance.
+    Kept for compatibility with the original script structure.
 
-    Returns a DataFrame with:
-    - date
-    - close
-
-    If the request fails, returns None.
+    This version builds a small DataFrame from the 7d sparkline data.
+    It is mainly useful for estimating the 3d return.
     """
-    params = {
-        "symbol": symbol,
-        "interval": "1d",
-        "limit": 100,
-    }
+    market_data = get_market_data()
 
-    try:
-        response = requests.get(
-            BINANCE_URL,
-            params=params,
-            headers=REQUEST_HEADERS,
-            timeout=10,
-        )
-        response.raise_for_status()
-        data = response.json()
-    except Exception as error:
-        print(f"Skipping {symbol}: API request failed ({error})")
-        return None
+    for coin in market_data:
+        coin_symbol = str(coin.get("symbol", "")).upper().strip()
+        if f"{coin_symbol}USDT" != symbol:
+            continue
 
-    if not isinstance(data, list) or not data:
-        print(f"Skipping {symbol}: no data returned")
-        return None
+        prices = coin.get("sparkline_in_7d", {}).get("price", [])
+        if not prices:
+            return None
 
-    try:
-        rows = []
-        for candle in data:
-            rows.append(
-                {
-                    "date": pd.to_datetime(candle[0], unit="ms"),
-                    "close": float(candle[4]),
-                }
-            )
-        df = pd.DataFrame(rows)
-        return df[["date", "close"]]
-    except Exception as error:
-        print(f"Skipping {symbol}: could not parse data ({error})")
-        return None
+        try:
+            rows = []
+            for index, price in enumerate(prices):
+                rows.append(
+                    {
+                        "date": index,
+                        "close": float(price),
+                    }
+                )
+            return pd.DataFrame(rows)
+        except Exception as error:
+            print(f"Skipping {symbol}: could not parse sparkline data ({error})")
+            return None
+
+    return None
 
 
 def compute_return(df, days):
     """
-    Compute percentage return over N days.
+    Compute percentage return over N days from a DataFrame.
 
-    Example:
-    0.05 means +5%
+    This is still used for the 3d return approximation based on the 7d sparkline.
     """
-    if df is None or len(df) < days + 1:
+    if df is None or df.empty:
         return None
 
     try:
+        total_points = len(df)
+        if total_points < 2:
+            return None
+
         latest_close = df["close"].iloc[-1]
-        past_close = df["close"].iloc[-(days + 1)]
+        target_index = round((total_points - 1) * (days / 7))
+        past_position = max(0, (total_points - 1) - target_index)
+        past_close = df["close"].iloc[past_position]
 
         if past_close == 0:
             return None
@@ -165,61 +142,97 @@ def compute_return(df, days):
 def build_results():
     """
     Build the relative strength table versus BTC.
+
+    Logic:
+    - top 50 by market cap from CoinGecko
+    - exclude stablecoins
+    - use CoinGecko 7d and 30d percentage changes directly
+    - estimate 3d return from the 7d sparkline
     """
+    market_data = get_market_data()
+    if not market_data:
+        print("No market data was found.")
+        return pd.DataFrame()
+
+    filtered_coins = []
+    for coin in market_data:
+        symbol = str(coin.get("symbol", "")).upper().strip()
+        if not symbol:
+            continue
+        if symbol in STABLECOINS:
+            continue
+        filtered_coins.append(coin)
+
+    btc_coin = None
+    for coin in filtered_coins:
+        if str(coin.get("symbol", "")).upper().strip() == "BTC":
+            btc_coin = coin
+            break
+
+    if btc_coin is None:
+        print("BTC was not found in the market data.")
+        return pd.DataFrame()
+
+    btc_df = pd.DataFrame(
+        {
+            "date": range(len(btc_coin.get("sparkline_in_7d", {}).get("price", []))),
+            "close": btc_coin.get("sparkline_in_7d", {}).get("price", []),
+        }
+    )
+
+    btc_return_3d = compute_return(btc_df, 3)
+    btc_return_7d = btc_coin.get("price_change_percentage_7d_in_currency")
+    btc_return_30d = btc_coin.get("price_change_percentage_30d_in_currency")
+
+    if btc_return_3d is None or btc_return_7d is None or btc_return_30d is None:
+        print("BTC does not have enough usable data.")
+        return pd.DataFrame()
+
+    btc_return_7d = btc_return_7d / 100
+    btc_return_30d = btc_return_30d / 100
+
     results = []
-    symbols = get_top_market_cap_symbols()
 
-    if not symbols:
-        print("No top market cap symbols were found.")
-        return pd.DataFrame()
-
-    btc_df = get_price_data("BTCUSDT")
-    if btc_df is None:
-        print("Could not fetch BTC data. No results to build.")
-        return pd.DataFrame()
-
-    btc_returns = {}
-    for days in LOOKBACKS:
-        btc_return = compute_return(btc_df, days)
-        if btc_return is None:
-            print(f"BTC does not have enough usable data for {days}d return.")
-            return pd.DataFrame()
-        btc_returns[days] = btc_return
-
-    for symbol in symbols:
-        if symbol == "BTCUSDT":
+    for coin in filtered_coins:
+        symbol = str(coin.get("symbol", "")).upper().strip()
+        if symbol == "BTC":
             continue
 
-        df = get_price_data(symbol)
-        if df is None:
+        sparkline_prices = coin.get("sparkline_in_7d", {}).get("price", [])
+        if not sparkline_prices:
+            print(f"Skipping {symbol}USDT: no sparkline data returned")
             continue
 
-        coin_returns = {}
-        missing_data = False
+        coin_df = pd.DataFrame(
+            {
+                "date": range(len(sparkline_prices)),
+                "close": sparkline_prices,
+            }
+        )
 
-        for days in LOOKBACKS:
-            coin_return = compute_return(df, days)
-            if coin_return is None:
-                print(f"Skipping {symbol}: not enough data for {days}d return")
-                missing_data = True
-                break
-            coin_returns[days] = coin_return
+        return_3d = compute_return(coin_df, 3)
+        return_7d = coin.get("price_change_percentage_7d_in_currency")
+        return_30d = coin.get("price_change_percentage_30d_in_currency")
 
-        if missing_data:
+        if return_3d is None or return_7d is None or return_30d is None:
+            print(f"Skipping {symbol}USDT: missing return data")
             continue
 
-        rel_3d = coin_returns[3] - btc_returns[3]
-        rel_7d = coin_returns[7] - btc_returns[7]
-        rel_30d = coin_returns[30] - btc_returns[30]
+        return_7d = return_7d / 100
+        return_30d = return_30d / 100
+
+        rel_3d = return_3d - btc_return_3d
+        rel_7d = return_7d - btc_return_7d
+        rel_30d = return_30d - btc_return_30d
 
         score = 0.2 * rel_3d + 0.3 * rel_7d + 0.5 * rel_30d
 
         results.append(
             {
-                "symbol": symbol,
-                "return_3d": coin_returns[3],
-                "return_7d": coin_returns[7],
-                "return_30d": coin_returns[30],
+                "symbol": f"{symbol}USDT",
+                "return_3d": return_3d,
+                "return_7d": return_7d,
+                "return_30d": return_30d,
                 "rel_3d": rel_3d,
                 "rel_7d": rel_7d,
                 "rel_30d": rel_30d,
@@ -229,6 +242,7 @@ def build_results():
         )
 
     if not results:
+        print("No valid screener results were generated.")
         return pd.DataFrame(
             columns=[
                 "symbol",
