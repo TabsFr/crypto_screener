@@ -15,6 +15,10 @@ OUTPUT_FILE = os.path.join(
 BYBIT_URL = "https://api.bybit.com/v5/market/kline"
 BYBIT_INSTRUMENTS_URL = "https://api.bybit.com/v5/market/instruments-info"
 COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/markets"
+REQUEST_HEADERS = {
+    "User-Agent": "crypto-relative-strength-screener/1.0",
+    "Accept": "application/json",
+}
 STABLECOINS = {
     "USDT",
     "USDC",
@@ -47,7 +51,12 @@ def get_bybit_spot_usdt_symbols():
     }
 
     try:
-        response = requests.get(BYBIT_INSTRUMENTS_URL, params=params, timeout=10)
+        response = requests.get(
+            BYBIT_INSTRUMENTS_URL,
+            params=params,
+            headers=REQUEST_HEADERS,
+            timeout=10,
+        )
         response.raise_for_status()
         data = response.json()
     except Exception as error:
@@ -94,7 +103,12 @@ def get_top_market_cap_symbols():
     }
 
     try:
-        response = requests.get(COINGECKO_URL, params=params, timeout=10)
+        response = requests.get(
+            COINGECKO_URL,
+            params=params,
+            headers=REQUEST_HEADERS,
+            timeout=10,
+        )
         response.raise_for_status()
         data = response.json()
     except Exception as error:
@@ -150,7 +164,12 @@ def get_price_data(symbol):
     }
 
     try:
-        response = requests.get(BYBIT_URL, params=params, timeout=10)
+        response = requests.get(
+            BYBIT_URL,
+            params=params,
+            headers=REQUEST_HEADERS,
+            timeout=10,
+        )
         response.raise_for_status()
         data = response.json()
     except Exception as error:
