@@ -37,6 +37,22 @@ STABLECOINS = {
 }
 
 
+def get_request_headers():
+    """
+    Build request headers.
+
+    If a free CoinGecko Demo API key is available, use it to reduce the
+    chance of shared public rate limits on Streamlit Cloud.
+    """
+    headers = REQUEST_HEADERS.copy()
+
+    demo_api_key = os.getenv("COINGECKO_DEMO_API_KEY", "").strip()
+    if demo_api_key:
+        headers["x-cg-demo-api-key"] = demo_api_key
+
+    return headers
+
+
 def get_market_data():
     """
     Fetch the top market cap coins from CoinGecko in one request.
@@ -61,7 +77,7 @@ def get_market_data():
         response = requests.get(
             COINGECKO_URL,
             params=params,
-            headers=REQUEST_HEADERS,
+            headers=get_request_headers(),
             timeout=10,
         )
         response.raise_for_status()
