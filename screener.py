@@ -12,8 +12,7 @@ OUTPUT_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "crypto_relative_strength.csv",
 )
-BYBIT_URL = "https://api.bybit.com/v5/market/kline"
-BYBIT_INSTRUMENTS_URL = "https://api.bybit.com/v5/market/instruments-info"
+BINANCE_URL = "https://api.binance.com/api/v3/klines"
 COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/markets"
 REQUEST_HEADERS = {
     "User-Agent": "crypto-relative-strength-screener/1.0",
@@ -38,58 +37,11 @@ STABLECOINS = {
     "BUSD",
 }
 
-
-def get_bybit_spot_usdt_symbols():
-    """
-    Fetch the list of tradable Bybit spot pairs quoted in USDT.
-
-    Returns a set like:
-    {"BTCUSDT", "ETHUSDT", ...}
-    """
-    params = {
-        "category": "spot",
-    }
-
-    try:
-        response = requests.get(
-            BYBIT_INSTRUMENTS_URL,
-            params=params,
-            headers=REQUEST_HEADERS,
-            timeout=10,
-        )
-        response.raise_for_status()
-        data = response.json()
-    except Exception as error:
-        print(f"Could not fetch Bybit instruments: {error}")
-        return set()
-
-    if data.get("retCode") != 0:
-        print(f"Could not fetch Bybit instruments: {data.get('retMsg')}")
-        return set()
-
-    instruments = data.get("result", {}).get("list", [])
-    if not isinstance(instruments, list) or not instruments:
-        print("Bybit returned no instrument list.")
-        return set()
-
-    valid_symbols = set()
-
-    for item in instruments:
-        symbol = str(item.get("symbol", "")).upper().strip()
-        quote_coin = str(item.get("quoteCoin", "")).upper().strip()
-        status = str(item.get("status", "")).strip()
-
-        if symbol and quote_coin == "USDT" and status == "Trading":
-            valid_symbols.add(symbol)
-
-    return valid_symbols
-
-
 def get_top_market_cap_symbols():
     """
     Fetch the top coins by market cap from CoinGecko.
 
-    We convert each coin symbol into the Bybit spot symbol format:
+    We convert each coin symbol into the Binance spot symbol format:
     BTC -> BTCUSDT, ETH -> ETHUSDT, etc.
 
     If CoinGecko fails, return an empty list.
@@ -130,18 +82,18 @@ def get_top_market_cap_symbols():
         if base_symbol in STABLECOINS:
             continue
 
-        bybit_symbol = f"{base_symbol}USDT"
+        binance_symbol = f"{base_symbol}USDT"
 
-        if bybit_symbol not in seen:
-            seen.add(bybit_symbol)
-            symbols.append(bybit_symbol)
+        if binance_symbol not in seen:
+            seen.add(binance_symbol)
+            symbols.append(binance_symbol)
 
     return symbols
 
 
 def get_price_data(symbol):
     """
-    Fetch daily close prices from Bybit.
+    Fetch daily close prices from Binance.
 
     Returns a DataFrame with:
     - date
@@ -150,15 +102,14 @@ def get_price_data(symbol):
     If the request fails, returns None.
     """
     params = {
-        "category": "spot",
         "symbol": symbol,
-        "interval": "D",
+        "interval": "1d",
         "limit": 100,
     }
 
     try:
         response = requests.get(
-            BYBIT_URL,
+            BINANCE_URL,
             params=params,
             headers=REQUEST_HEADERS,
             timeout=10,
@@ -169,26 +120,20 @@ def get_price_data(symbol):
         print(f"Skipping {symbol}: API request failed ({error})")
         return None
 
-    if data.get("retCode") != 0:
-        print(f"Skipping {symbol}: Bybit returned an error ({data.get('retMsg')})")
-        return None
-
-    candles = data.get("result", {}).get("list", [])
-    if not isinstance(candles, list) or not candles:
+    if not isinstance(data, list) or not data:
         print(f"Skipping {symbol}: no data returned")
         return None
 
     try:
         rows = []
-        for candle in candles:
+        for candle in data:
             rows.append(
                 {
-                    "date": pd.to_datetime(int(candle[0]), unit="ms"),
+                    "date": pd.to_datetime(candle[0], unit="ms"),
                     "close": float(candle[4]),
                 }
             )
         df = pd.DataFrame(rows)
-        df = df.sort_values("date").reset_index(drop=True)
         return df[["date", "close"]]
     except Exception as error:
         print(f"Skipping {symbol}: could not parse data ({error})")
