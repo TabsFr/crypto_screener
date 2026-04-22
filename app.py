@@ -27,19 +27,29 @@ def color_value(value):
     return ""
 
 
+@st.cache_data(ttl=300)
+def load_results():
+    """
+    Cache live results for 5 minutes to avoid rate limits on public hosting.
+    """
+    debug_output = StringIO()
+    with redirect_stdout(debug_output):
+        results_df = build_results()
+    live_fetch_logs = debug_output.getvalue().strip()
+    return results_df, live_fetch_logs
+
+
 def main():
     st.title("Crypto Relative Strength Screener")
 
     st.write("This app shows which coins are outperforming BTC based on the existing screener logic.")
 
     if st.button("Refresh data"):
+        load_results.clear()
         st.rerun()
 
     csv_file = "crypto_relative_strength.csv"
-    debug_output = StringIO()
-    with redirect_stdout(debug_output):
-        results_df = build_results()
-    live_fetch_logs = debug_output.getvalue().strip()
+    results_df, live_fetch_logs = load_results()
     data_source = "Live API data"
 
     if not results_df.empty:
