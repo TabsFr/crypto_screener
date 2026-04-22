@@ -1,4 +1,6 @@
 from datetime import datetime
+from io import StringIO
+from contextlib import redirect_stdout
 
 import pandas as pd
 import streamlit as st
@@ -34,7 +36,10 @@ def main():
         st.rerun()
 
     csv_file = "crypto_relative_strength.csv"
-    results_df = build_results()
+    debug_output = StringIO()
+    with redirect_stdout(debug_output):
+        results_df = build_results()
+    live_fetch_logs = debug_output.getvalue().strip()
     data_source = "Live API data"
 
     if not results_df.empty:
@@ -46,8 +51,12 @@ def main():
         results_df = pd.read_csv(csv_file)
         data_source = "Saved CSV fallback"
         st.warning("Live market data could not be loaded. Showing the last saved results instead.")
+        if live_fetch_logs:
+            st.code(live_fetch_logs)
     else:
         st.error("No valid results were generated.")
+        if live_fetch_logs:
+            st.code(live_fetch_logs)
         return
 
     st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
