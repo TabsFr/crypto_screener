@@ -47,6 +47,14 @@ def get_request_headers():
     headers = REQUEST_HEADERS.copy()
 
     demo_api_key = os.getenv("COINGECKO_DEMO_API_KEY", "").strip()
+    if not demo_api_key:
+        try:
+            import streamlit as st
+
+            demo_api_key = str(st.secrets.get("COINGECKO_DEMO_API_KEY", "")).strip()
+        except Exception:
+            demo_api_key = ""
+
     if demo_api_key:
         headers["x-cg-demo-api-key"] = demo_api_key
 
