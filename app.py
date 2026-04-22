@@ -33,13 +33,25 @@ def main():
     if st.button("Refresh data"):
         st.rerun()
 
+    csv_file = "crypto_relative_strength.csv"
     results_df = build_results()
+    data_source = "Live API data"
 
-    if results_df.empty:
+    if not results_df.empty:
+        try:
+            results_df.to_csv(csv_file, index=False)
+        except Exception:
+            pass
+    elif pd.io.common.file_exists(csv_file):
+        results_df = pd.read_csv(csv_file)
+        data_source = "Saved CSV fallback"
+        st.warning("Live market data could not be loaded. Showing the last saved results instead.")
+    else:
         st.error("No valid results were generated.")
         return
 
     st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.caption(f"Data source: {data_source}")
 
     show_only_outperforming = st.checkbox("Show only outperforming BTC", value=False)
     min_score = st.slider("Minimum score", min_value=-0.50, max_value=0.50, value=-0.50, step=0.01)
