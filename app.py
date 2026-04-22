@@ -1,4 +1,5 @@
-import os
+from datetime import datetime
+
 import pandas as pd
 import streamlit as st
 
@@ -29,17 +30,16 @@ def main():
 
     st.write("This app shows which coins are outperforming BTC based on the existing screener logic.")
 
-    # Try to load from CSV first, fallback to building results
-    csv_file = os.path.join(os.path.dirname(__file__), "crypto_relative_strength.csv")
-    
-    if os.path.exists(csv_file):
-        results_df = pd.read_csv(csv_file)
-    else:
-        results_df = build_results()
+    if st.button("Refresh data"):
+        st.rerun()
+
+    results_df = build_results()
 
     if results_df.empty:
         st.error("No valid results were generated.")
         return
+
+    st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     show_only_outperforming = st.checkbox("Show only outperforming BTC", value=False)
     min_score = st.slider("Minimum score", min_value=-0.50, max_value=0.50, value=-0.50, step=0.01)
