@@ -119,11 +119,6 @@ def get_top_market_cap_symbols():
         print("CoinGecko returned no market cap data.")
         return []
 
-    valid_bybit_symbols = get_bybit_spot_usdt_symbols()
-    if not valid_bybit_symbols:
-        print("Could not build the valid Bybit symbol list.")
-        return []
-
     symbols = []
     seen = set()
 
@@ -136,8 +131,6 @@ def get_top_market_cap_symbols():
             continue
 
         bybit_symbol = f"{base_symbol}USDT"
-        if bybit_symbol not in valid_bybit_symbols:
-            continue
 
         if bybit_symbol not in seen:
             seen.add(bybit_symbol)
